@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+/*
+ * Barvy JK servis s.r.o. (vymyšlená firma). Barvu nikde nepiš natvrdo —
+ * jen tyhle proměnné, aby seděl světlý i tmavý vzhled a kontrast (WCAG AA).
+ */
+:root {
+  --pozadi: #f6f5f2;
+  --povrch: #ffffff;
+  --text: #1c2430;
+  --text-tlumeny: #4f5b6b;
+  --okraj: #d9d6cf;
+  --hlavni: #1f4e79;
+  --hlavni-text: #ffffff;
+  --zvyrazneni: #b45309;
+  --chyba: #b42318;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pozadi: #12161c;
+    --povrch: #1b2129;
+    --text: #e8eaed;
+    --text-tlumeny: #a9b1bc;
+    --okraj: #313a46;
+    --hlavni: #7fb2e5;
+    --hlavni-text: #0d1b2a;
+    --zvyrazneni: #f2a65a;
+    --chyba: #ff8a80;
+  }
+}
+
+@theme inline {
+  --color-pozadi: var(--pozadi);
+  --color-povrch: var(--povrch);
+  --color-text: var(--text);
+  --color-text-tlumeny: var(--text-tlumeny);
+  --color-okraj: var(--okraj);
+  --color-hlavni: var(--hlavni);
+  --color-hlavni-text: var(--hlavni-text);
+  --color-zvyrazneni: var(--zvyrazneni);
+  --color-chyba: var(--chyba);
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background: var(--pozadi);
+  color: var(--text);
+}

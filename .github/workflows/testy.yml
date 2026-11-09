@@ -1,0 +1,70 @@
+# Celá sada testů v prohlížeči (Playwright) na serverech GitHubu,
+# stejně jako doma přes `docker compose --profile test run e2e`.
+#
+# Bezpečnost: žádná tajemství ani skutečná data (databáze v paměti bez
+# hesla, vymyšlená data). Jen oficiální akce GitHubu, zafixované na otisk.
+# Testy smí kód jen číst.
+#
+# Kdy běží: u pull requestu do `main` a ručně (Actions → Testy v prohlížeči
+# → Run workflow). Ne po každém pushi — soukromý repozitář má zdarma
+# 2000 minut měsíčně společných pro všechny projekty.
+name: Testy v prohlížeči
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: e2e (${{ matrix.prohlizec }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        prohlizec: [desktop, android, iphone]
+    steps:
+      - name: Stažení kódu
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Sestavení aplikace a závislostí
+        # Obraz `web` nese node_modules; první spuštění je zkopíruje do
+        # svazku, ze kterého je bere i služba `e2e`.
+        run: |
+          docker compose build web
+          docker compose run --rm --no-deps web true
+
+      - name: Sada testů (${{ matrix.prohlizec }})
+        run: |
+          docker compose --profile test run --rm -e E2E_PRODUKCE=1 e2e \
+            npx playwright test --project=${{ matrix.prohlizec }} --workers=2
+
+      # Ukázkový režim (krok 5A) má vlastní sadu a databázi; iPhone ji nepouští.
+      - name: Sada ukázky (${{ matrix.prohlizec }})
+        if: ${{ matrix.prohlizec != 'iphone' }}
+        run: |
+          docker compose --profile test run --rm e2e \
+            npx playwright test -c playwright.ukazka.config.ts --project=${{ matrix.prohlizec }}
+
+      - name: Zpráva z běhu a snímky spadlých testů
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: zprava-testu-${{ matrix.prohlizec }}
+          path: |
+            e2e/zprava
+            e2e/vysledky
+            e2e-ukazka/zprava
+            e2e-ukazka/vysledky
+          retention-days: 7
+          if-no-files-found: ignore

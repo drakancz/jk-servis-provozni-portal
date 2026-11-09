@@ -1,0 +1,291 @@
+// Schéma databáze Provozního portálu (JK servis s.r.o., vymyšlená firma).
+//
+// Krok 1B (7. 11. 2026): tabulky pro přihlášení přes Better Auth —
+// uživatelé, sezení, účty (otisk hesla), ověřovací tokeny a omezení
+// pokusů. Názvy polí určuje Better Auth, názvy tabulek jsou naše (@@map).
+
+generator client {
+  // Prisma 7 generuje klienta jako TypeScript do projektu (mimo repozitář).
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Připojovací adresa se od Prismy 7 do schématu nepíše — je v prisma.config.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+/// Role ze zadání (Jakub, 7. 11. 2026). Uživatele spravuje jen Majitel (1C);
+/// co smí ostatní u zakázek, řeší krok 2.
+enum Role {
+  MAJITEL
+  DISPECER
+  TECHNIK
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          Role      @default(TECHNIK)
+  /// Vyplněné = účet zrušený. Přihlásit se nejde (src/lib/auth.ts),
+  /// záznam zůstává kvůli historii zakázek.
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  passwordLinks PasswordLink[]
+  history       History[]
+  orders        Order[]   @relation("PrideleneZakazky")
+  workEntries   WorkEntry[]
+  materialEntries MaterialEntry[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// Způsob přihlášení. U e-mailu a hesla je `providerId` = "credential"
+/// a v `password` otisk hesla (scrypt), nikdy heslo samotné.
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verifications")
+}
+
+/// Omezení pokusů o přihlášení (5 za 15 minut z jedné adresy). V databázi,
+/// ne v paměti — vydrží restart i uspání služby na Railway.
+model RateLimit {
+  id          String @id
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+
+  @@map("rate_limits")
+}
+
+/// Jednorázový odkaz k nastavení hesla (krok 1C, Jakub 8. 11. 2026).
+/// Majitel založí účet a odkaz předá sám (SMS, osobně) — portál neposílá
+/// e-maily. Heslo pak zná jen ten člověk. V databázi je jen otisk tokenu
+/// (SHA-256), platí 24 hodin a jen jednou. Nový odkaz ruší ty předchozí.
+model PasswordLink {
+  id        String    @id
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("odkazy_hesla")
+}
+
+/// Zákazník servisní firmy (krok 2A, Jakub 8. 11. 2026). Vidí a zakládá
+/// Majitel a Dispečer, maže jen Majitel; Technik uvidí zákazníka jen
+/// u své zakázky (krok 2B). Smazání jen vyplní `deletedAt` a zákazník se
+/// zakázkami smazat nejde.
+model Customer {
+  id        String    @id
+  name      String
+  ico       String?
+  phone     String?
+  email     String?
+  address   String?
+  note      String?
+  /// Jméno, IČO, telefon, e-mail a adresa malými písmeny bez diakritiky —
+  /// hledání „novak“ najde „Novák“ (src/lib/hledani.ts). Skládá ho jen kód.
+  search    String
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  orders    Order[]
+
+  @@index([deletedAt])
+  @@map("zakaznici")
+}
+
+/// Stav zakázky (krok 2B, Jakub 8. 11. 2026). Technik u své posouvá jen
+/// PRIDELENA → V_PRACI → HOTOVA; VYFAKTUROVANA nastavuje a ruší jen Majitel.
+enum OrderStatus {
+  NOVA
+  PRIDELENA
+  V_PRACI
+  HOTOVA
+  VYFAKTUROVANA
+}
+
+/// Servisní zakázka (krok 2A). Číslo přiděluje databáze, nikdy kód.
+/// Přidělení technikovi a stavy přijdou v kroku 2B, výkaz v 2C.
+model Order {
+  id          String    @id
+  number      Int       @unique @default(autoincrement())
+  customerId  String
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  /// Kam se jede (adresa výjezdu) — může se lišit od adresy zákazníka.
+  place       String
+  description String
+  /// Termín výjezdu (jen den, bez času).
+  dueDate     DateTime? @db.Date
+  status      OrderStatus @default(NOVA)
+  /// Přidělený technik (krok 2B); přiděluje Majitel a Dispečer.
+  technicianId String?
+  technician   User?     @relation("PrideleneZakazky", fields: [technicianId], references: [id])
+  workEntries     WorkEntry[]
+  materialEntries MaterialEntry[]
+  /// Číslo, místo a popis bez diakritiky (src/lib/hledani.ts).
+  search      String
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([customerId])
+  @@index([technicianId])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("zakazky")
+}
+
+/// Historie změn: kdo co založil, změnil nebo smazal. Zapisuje se ve stejné
+/// transakci jako změna. Bez obsahu polí — jen které se změnily.
+model History {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  /// "zakaznik" | "zakazka"
+  entity    String
+  entityId  String
+  /// "zalozeno" | "upraveno" | "smazano"
+  action    String
+  /// Názvy změněných polí („Telefon, Adresa“), nikdy jejich hodnoty.
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@map("historie")
+}
+
+/// Výkaz práce u zakázky (krok 2C): jeden řádek = jeden výjezd nebo kus práce.
+/// Zapisuje technik u své zakázky, Majitel a Dispečer u každé (pravidla
+/// v src/lib/vykaz.ts). Smazání jen vyplní `deletedAt`.
+model WorkEntry {
+  id        String    @id
+  orderId   String
+  order     Order     @relation(fields: [orderId], references: [id])
+  /// Kdo řádek zapsal.
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  /// Den práce (jen den, půlnoc UTC).
+  date      DateTime  @db.Date
+  /// Odpracováno v minutách (1–1440).
+  minutes   Int
+  /// Hodinová sazba bez DPH ve chvíli zápisu (krok 4A) — pozdější změna
+  /// ceníku starý výkaz nepřecení.
+  hourlyRate Decimal  @db.Decimal(10, 2)
+  /// Co se dělalo.
+  note      String
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([orderId])
+  @@map("vykaz_prace")
+}
+
+/// Materiál použitý na zakázce (krok 2C). Cena z ceníku (krok 4A).
+model MaterialEntry {
+  id        String    @id
+  orderId   String
+  order     Order     @relation(fields: [orderId], references: [id])
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  name      String
+  quantity  Decimal   @db.Decimal(10, 2)
+  /// Jednotka z pevného výčtu (src/lib/vykaz-pravidla.ts).
+  unit      String
+  /// Položka ceníku, ze které řádek vznikl (krok 4A); prázdné = zapsáno ručně.
+  priceItemId String?
+  priceItem   PriceItem? @relation(fields: [priceItemId], references: [id])
+  /// Cena za jednotku bez DPH ve chvíli zápisu. Prázdné = cena chybí
+  /// (technik zapsal materiál mimo ceník, cenu doplní Dispečer nebo Majitel).
+  unitPrice   Decimal?   @db.Decimal(10, 2)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([orderId])
+  @@map("vykaz_material")
+}
+
+/// Nastavení firmy (krok 4A) — jediný řádek s id "firma". Hodinová sazba
+/// za práci bez DPH; mění jen Majitel.
+model Setting {
+  id         String   @id
+  hourlyRate Decimal  @db.Decimal(10, 2)
+  /// Ukázkový režim (krok 5A): pražský den poslední obnovy dat (`RRRR-MM-DD`).
+  demoRestoredDay String?
+  updatedAt  DateTime @updatedAt
+
+  @@map("nastaveni")
+}
+
+/// Položka ceníku materiálu (krok 4A, Jakub 9. 11. 2026). Vidí Majitel
+/// a Dispečer, mění jen Majitel. Cena bez DPH za jednotku. Smazání jen
+/// vyplní `deletedAt` — zapsané řádky výkazu si cenu nechají.
+model PriceItem {
+  id        String    @id
+  name      String
+  unit      String
+  price     Decimal   @db.Decimal(10, 2)
+  /// Název malými písmeny bez diakritiky — hlídá dvojí položku.
+  search    String
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  materialEntries MaterialEntry[]
+
+  @@index([deletedAt])
+  @@map("cenik_material")
+}

@@ -1,0 +1,34 @@
+# Závislosti — instalují se jen v Dockeru (linuxové binárky)
+/node_modules
+
+# Next.js
+/.next/
+/out/
+/build
+next-env.d.ts
+*.tsbuildinfo
+
+# Testy (Playwright): výsledky a zpráva z běhu
+/e2e/vysledky
+/e2e/zprava
+/test-results
+/playwright-report
+
+# Tajemství nikdy do repozitáře; vzor bez skutečných hodnot naopak ano
+.env*
+!.env.example
+*.pem
+
+# Generovaný klient Prismy (od kroku 1B)
+/src/generated
+
+# Snímky ze zkoušek v prohlížeči
+/snimky
+
+# Systém a editory
+.DS_Store
+Thumbs.db
+npm-debug.log*
+/e2e-ukazka/vysledky
+/e2e-ukazka/zprava
+scripts/snimky/vysledky/

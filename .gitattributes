@@ -1,0 +1,6 @@
+# Linuxové konce řádků všude — skripty běží v Dockeru (Linux), na Windows
+# by je git jinak převáděl a e2e/server.sh by nešel spustit.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.xlsx binary
