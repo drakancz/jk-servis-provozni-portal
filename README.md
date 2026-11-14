@@ -13,7 +13,7 @@ jako aplikaci.** Firma nemusí nic přepisovat.
 Je to ukázka do portfolia pro vymyšlenou firmu **JK servis s.r.o.** Všechna
 data jsou vymyšlená.
 
-**Vyzkoušejte si to:** _odkaz na živou ukázku doplním po nasazení_ — na
+**Vyzkoušejte si to:** <https://provozni-portal-dev.up.railway.app/prihlaseni> — na
 přihlašovací stránce stačí kliknout na „Vyzkoušet jako Majitel / Dispečer /
 Technik“. Data se každý den vrátí do výchozího stavu.
 

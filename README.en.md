@@ -14,7 +14,7 @@ right away.** The company does not have to retype anything.
 It is a portfolio demo for a made-up company, **JK servis s.r.o.** All data
 is made up. The app itself is in Czech.
 
-**Try it:** _live demo link coming after deployment_ — on the sign-in page,
+**Try it:** <https://provozni-portal-dev.up.railway.app/prihlaseni> — on the sign-in page,
 just click “Vyzkoušet jako Majitel / Dispečer / Technik” (owner /
 dispatcher / technician). The data resets to its initial state every day.
 
